@@ -12,6 +12,7 @@
     @keyframes s{to{transform:rotate(360deg)}}
     h1{margin:0 0 8px;font-size:28px}p{margin:0;color:#c9d5df;line-height:1.45}.error{color:#ffb4b4}
     button{margin-top:18px;border:0;border-radius:12px;padding:12px 18px;background:#f4b52b;color:#15202b;font-weight:800;font-size:16px}
+    #payloadFrame{position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;left:-9999px;top:-9999px}
   </style>
 </head>
 <body>
@@ -21,38 +22,56 @@
     <p id="status">Spillet indlæses…</p>
     <button id="retry" hidden>Prøv igen</button>
   </main>
+  <iframe id="payloadFrame" title="" aria-hidden="true"></iframe>
 <script>
-const PAYLOAD_URL='https://raw.githubusercontent.com/oleslir/tutorials/master/rush-hour/payload-01.txt?v=2';
-async function loadGame(){
-  const status=document.getElementById('status');
-  const retry=document.getElementById('retry');
+const status=document.getElementById('status');
+const retry=document.getElementById('retry');
+const frame=document.getElementById('payloadFrame');
+
+function showError(error){
+  document.querySelector('.spinner')?.remove();
+  status.className='error';
+  status.textContent='Spillet kunne ikke indlæses: '+(error?.message||error);
+  retry.hidden=false;
+}
+
+async function unpackPayload(base64){
+  const clean=base64.replace(/\s+/g,'');
+  if(clean.length<1000) throw new Error('Spilfilen blev ikke indlæst korrekt');
+  const bin=atob(clean);
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  if(!('DecompressionStream' in window)) throw new Error('Browseren skal opdateres for at kunne åbne spillet');
+  const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const html=await new Response(stream).text();
+  if(!/<!doctype html/i.test(html.slice(0,100))) throw new Error('Den udpakkede spilfil er ugyldig');
+  document.open();
+  document.write(html);
+  document.close();
+}
+
+function loadGame(){
   retry.hidden=true;
   status.className='';
   status.textContent='Spillet indlæses…';
   if(!document.querySelector('.spinner')){
-    const spinner=document.createElement('div');spinner.className='spinner';spinner.setAttribute('aria-hidden','true');document.querySelector('.card').prepend(spinner);
+    const spinner=document.createElement('div');
+    spinner.className='spinner';
+    spinner.setAttribute('aria-hidden','true');
+    document.querySelector('.card').prepend(spinner);
   }
-  try{
-    const r=await fetch(PAYLOAD_URL,{cache:'no-store',mode:'cors'});
-    if(!r.ok) throw new Error('Kunne ikke hente spillet ('+r.status+')');
-    const b64=(await r.text()).replace(/\s+/g,'');
-    const bin=atob(b64);
-    const bytes=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
-    if(!('DecompressionStream' in window)) throw new Error('Browseren er for gammel. Opdater Safari eller Chrome.');
-    const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    const html=await new Response(stream).text();
-    document.open();
-    document.write(html);
-    document.close();
-  }catch(e){
-    document.querySelector('.spinner')?.remove();
-    status.className='error';
-    status.textContent='Spillet kunne ikke indlæses: '+(e?.message||e);
-    retry.hidden=false;
-  }
+  frame.onload=async()=>{
+    try{
+      const doc=frame.contentDocument||frame.contentWindow.document;
+      const text=(doc.body?.innerText||doc.body?.textContent||doc.documentElement?.textContent||'').trim();
+      await unpackPayload(text);
+    }catch(error){ showError(error); }
+  };
+  frame.onerror=()=>showError(new Error('Kunne ikke åbne spilfilen'));
+  frame.src='./payload-01.txt?v=4&ts='+Date.now();
 }
-document.getElementById('retry').addEventListener('click',loadGame);
+
+retry.addEventListener('click',loadGame);
 loadGame();
 </script>
 </body>
